@@ -1,13 +1,22 @@
 #include<math.h>
 #include<stdio.h>
 #include<complex.h>
-#include"relaylib.h"
+#include<time.h>
+#include"./include/relaylib.h"
+#include"./include/comtrade.h"
+
 #define PI 3.141592653589793
 
+double CTD_IA[16];
+char CTD_station_name[32];
 
 void c_hwl_relay_m_(double xdata_ar[], double xin_ar[], double xout_ar[], double xvar_ar[])
 {
-	int it, jt; 
+	char TimeNow[30];
+	char buffer_time[26];
+	char nameCOMTRADE[64];
+	char nameCFG[64];
+	int it, jt, FALTA, FALTAfull[4]; 
 	int FS[6], FSnow[6], FSfull[4][6];
 	double TF, TFF;
 	double R0f, R2f;
@@ -20,16 +29,32 @@ void c_hwl_relay_m_(double xdata_ar[], double xin_ar[], double xout_ar[], double
 	double complex zL0, zL1, ZL0, ZL1;
 	double lenL, SFreq;
 	double complex dZ[6];
-	
-	PT1=xdata_ar[0];
-	PT2=xdata_ar[1];
-	CT1=xdata_ar[2];
-	CT2=xdata_ar[3];
-	zL0=xdata_ar[4]+xdata_ar[5]*I;
-	zL1=xdata_ar[6]+xdata_ar[7]*I;
-	lenL=xdata_ar[8];
-	SFreq=xdata_ar[9];
+	float ID;
+	char ID_str[32];
+	FILE *fileCFG;
+	double t, starttime, stoptime, fullstep, startstep;
 
+	t=xin_ar[6];
+
+	ID=xdata_ar[0];
+	sprintf(ID_str,"HWL_RELAY-%.0f",ID);
+	stoptime=xdata_ar[1];
+	fullstep=xdata_ar[2];
+	startstep=xdata_ar[3];
+	
+	PT1=xdata_ar[4];
+	PT2=xdata_ar[5];
+	CT1=xdata_ar[6];
+	CT2=xdata_ar[7];
+	zL0=xdata_ar[8]+xdata_ar[9]*I;
+	zL1=xdata_ar[10]+xdata_ar[11]*I;
+	lenL=xdata_ar[12];
+	SFreq=xdata_ar[13];
+
+	/*for(it=0;it<6;it)
+	{
+		FS[it]=0;
+	}*/
 	//printf("Zonas creadas\n");
 
     for (it=0; it<6; it++) //guardamos las 6 entradas en el
@@ -100,7 +125,16 @@ void c_hwl_relay_m_(double xdata_ar[], double xin_ar[], double xout_ar[], double
 	R0f=fabs(cabs(iSIME[0])/cabs(iSIME[1]));
 	R2f=fabs(cabs(iSIME[2])/cabs(iSIME[1]));
 
-	if(R0f+R2f<0.1)
+	if(R0f+R2f>0.1 && t > 1.0/60)
+	{
+		FALTA=1;
+	}
+	else
+	{
+		FALTA=0;
+	}
+
+	if(FALTA==0)
 	{
 		xvar_ar[96]=creal(vPHASE[0]);
 		xvar_ar[97]=cimag(vPHASE[0]);
@@ -134,6 +168,40 @@ void c_hwl_relay_m_(double xdata_ar[], double xin_ar[], double xout_ar[], double
 			FSfull[it][jt]=xvar_ar[108+it*6+jt];
 		}
 	}
+	for(it=0;it<3;it++)
+	{
+		xvar_ar[132+it]=xvar_ar[132+it+1];
+	}
+	xvar_ar[132+3]=FALTA;
+
+	for(it=0;it<4;it++)
+	{
+		FALTAfull[it]=xvar_ar[132+it];
+	}
+
+	if(FALTAfull[2]+FALTAfull[1]+FALTAfull[0]==0)
+	{
+		if(FALTA==1)
+		{
+			TimeNameComtrade(buffer_time);
+			sprintf(nameCOMTRADE,"%s-%s",ID_str,buffer_time);
+			sprintf(nameCFG,"%s.cfg",nameCOMTRADE);
+			fileCFG=fopen(nameCFG,"a");
+			fprintf(fileCFG,"Fault\n");
+			fprintf(fileCFG,"%s\n",CTD_station_name);
+
+			TimeComtrade(TimeNow);
+			fclose(fileCFG);
+		}	
+	}
+	if((FALTAfull[2]==1 && FALTAfull[3]==0) )
+	{
+	//	SAIDArel=fopen("Salida.txt","a");
+	//	fprintf(SAIDArel,"End event\n");
+	//	fclose(SAIDArel);
+	
+	}
+
 
 	for(it=0;it<6;it++)
 	{
@@ -147,18 +215,41 @@ void c_hwl_relay_m_(double xdata_ar[], double xin_ar[], double xout_ar[], double
 		}
 	}
 
-	xout_ar[24]=FS[0];
-	xout_ar[25]=FS[1];
-	xout_ar[26]=FS[2];
-	xout_ar[27]=FS[3];
-	xout_ar[28]=FS[4];
-	xout_ar[29]=FS[5]; 
+	xout_ar[24]=FS[0]*FALTA;
+	xout_ar[25]=FS[1]*FALTA;
+	xout_ar[26]=FS[2]*FALTA;
+	xout_ar[27]=FS[3]*FALTA;
+	xout_ar[28]=FS[4]*FALTA;
+	xout_ar[29]=FS[5]*FALTA; 
 	return;
 }
 
 void c_hwl_relay_i_(double xdata_ar[], double xin_ar[], double xout_ar[], double xvar_ar[])
 {
 	int it;
+	FILE *Settings;
+	float value;
+	char linea[100];
+	char value_str[10];
+	char filename[32];
+	printf("Lendo o arquivo de configuracao HWL_RELAY-%.0f.set\n",xdata_ar[0]);
+	sprintf(filename,"HWL_RELAY-%.0f.set",xdata_ar[0]);
+	Settings=fopen(filename,"r");	
+	
+	
+	fscanf(Settings,"%s", CTD_station_name);
+	fgets(linea,100,Settings);
+		
+	for(it=4;it<14;it++)
+	{	
+		fscanf(Settings,"%s", value_str);
+		sscanf(value_str,"%f",&value);
+		xdata_ar[it]=value;	
+		fgets(linea,100,Settings);
+		printf("xdata_ar[i]: = %f\n",value);
+	}
+	fclose(Settings);
+
 	for(it=0; it<30; it++)
 		xout_ar[it]=0;
 
@@ -169,6 +260,6 @@ void c_hwl_relay_i_(double xdata_ar[], double xin_ar[], double xout_ar[], double
 //	xvar_ar[114]=1;
 //	xvar_ar[115]=1;
 //	xvar_ar[116]=1;
-return;
+	return;
 }
 
